@@ -55,15 +55,18 @@ raw signal → preprocessing → R-peak detection → feature extraction → mat
      from a heuristic landmark delineator.
    - *Non-fiducial*: the median beat waveform (a per-subject "template"),
      used directly for shape matching without any landmark detection.
-5. **`matching.py`** — enrolls a subject as (template, fiducial vector),
-   and identifies a query recording by comparing it against every
-   enrolled subject via cross-correlation, DTW (`fastdtw`), or z-scored
-   fiducial distance, returning the best match **and its score** — never
-   a bare label.
+5. **`matching.py`** — enrolls a subject as (template, fiducial vector).
+   Two distinct operations are exposed: `identify()`, 1:N — compare a
+   query against every enrolled subject via cross-correlation, DTW
+   (`fastdtw`), or z-scored fiducial distance, and return the best match
+   **and its score** (never a bare label); and `verify()`, 1:1 — score a
+   query against a single *claimed* identity and accept/reject against a
+   threshold, the operation an access-control-style system would
+   actually use.
 6. **`evaluation.py`** — the actual biometric test: enroll on one session,
    identify on a *different* session of the same subjects, and report
    rank-1 accuracy plus a proper ROC curve and Equal Error Rate (EER).
-7. **`cli.py`** — `heartlock enroll` / `identify` / `evaluate`.
+7. **`cli.py`** — `heartlock enroll` / `identify` / `verify` / `evaluate`.
 
 ## Install
 
@@ -88,14 +91,26 @@ heartlock identify Person_01 --session 2
 # identify an arbitrary local signal instead of a database subject
 heartlock identify --file my_snippet.npy --fs 500
 
+# 1:1 verify a claimed identity (accept/reject, not a ranked match)
+heartlock verify Person_01 --session 2 --claim Person_01
+
 # cross-session ROC/EER evaluation over a batch of subjects
 heartlock evaluate --method template_corr --enroll-session 1 --test-session 2 --max-subjects 30
 ```
 
-`--method` on `identify`/`evaluate` selects the matcher: `template_corr`
-(cross-correlation of the averaged beat template, the default), `template_dtw`
-(DTW alignment of the same template), or `fiducial` (landmark-feature
-distance).
+`--method` on `identify`/`verify`/`evaluate` selects the matcher:
+`template_corr` (cross-correlation of the averaged beat template, the
+default), `template_dtw` (DTW alignment of the same template), or
+`fiducial` (landmark-feature distance).
+
+`identify` is 1:N: "who, out of everyone enrolled, does this look like?"
+`verify` is the different, 1:1 question an access-control-style system
+actually asks: "does this match the identity being *claimed*?" It accepts
+or rejects based on a score threshold rather than returning a ranked
+list. If `--threshold` isn't given, it's read from
+`results/<method>_summary.json` (the EER threshold from the last
+`heartlock evaluate` run for that method) — run `evaluate` first, or pass
+`--threshold` explicitly.
 
 ## Interpreting the evaluation output
 
