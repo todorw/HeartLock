@@ -1,0 +1,28 @@
+# raw ECG / PhysioNet data - never commit subject data
+data/
+*.dat
+*.hea
+*.atr
+
+# secrets
+.env
+*.pem
+*.key
+
+# python
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+
+# results (plots/reports may be committed selectively, ignore by default)
+results/*
+!results/.gitkeep
+
+# editor/OS
+.DS_Store
+*.swp
