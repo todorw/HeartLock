@@ -106,6 +106,156 @@ def test_identify_without_enrollment_store_fails_gracefully(tmp_path, capsys):
     assert "enroll subjects first" in capsys.readouterr().err
 
 
+def test_verify_accepts_genuine_claim_via_files(tmp_path, capsys):
+    fs = 500
+    store = tmp_path / "store.npz"
+
+    low_t_path = tmp_path / "low_t.npy"
+    high_t_path = tmp_path / "high_t.npy"
+    np.save(low_t_path, _synthetic_multi_beat_signal(fs, 20, 72, t_amplitude=0.15, seed=1))
+    np.save(high_t_path, _synthetic_multi_beat_signal(fs, 20, 72, t_amplitude=0.6, seed=2))
+
+    assert cli.main(["enroll", "--file", str(low_t_path), "--fs", str(fs), "--store", str(store)]) == 0
+    assert cli.main(["enroll", "--file", str(high_t_path), "--fs", str(fs), "--store", str(store)]) == 0
+    capsys.readouterr()
+
+    query_path = tmp_path / "query.npy"
+    np.save(query_path, _synthetic_multi_beat_signal(fs, 20, 72, t_amplitude=0.6, seed=99))
+
+    exit_code = cli.main(
+        [
+            "verify",
+            "--file",
+            str(query_path),
+            "--fs",
+            str(fs),
+            "--store",
+            str(store),
+            "--claim",
+            "high_t",
+            "--threshold",
+            "0.95",
+        ]
+    )
+    assert exit_code == 0
+    assert "ACCEPTED" in capsys.readouterr().out
+
+
+def test_verify_rejects_impostor_claim_via_files(tmp_path, capsys):
+    fs = 500
+    store = tmp_path / "store.npz"
+
+    low_t_path = tmp_path / "low_t.npy"
+    high_t_path = tmp_path / "high_t.npy"
+    np.save(low_t_path, _synthetic_multi_beat_signal(fs, 20, 72, t_amplitude=0.15, seed=1))
+    np.save(high_t_path, _synthetic_multi_beat_signal(fs, 20, 72, t_amplitude=0.6, seed=2))
+
+    assert cli.main(["enroll", "--file", str(low_t_path), "--fs", str(fs), "--store", str(store)]) == 0
+    assert cli.main(["enroll", "--file", str(high_t_path), "--fs", str(fs), "--store", str(store)]) == 0
+    capsys.readouterr()
+
+    query_path = tmp_path / "query.npy"
+    np.save(query_path, _synthetic_multi_beat_signal(fs, 20, 72, t_amplitude=0.6, seed=99))
+
+    exit_code = cli.main(
+        [
+            "verify",
+            "--file",
+            str(query_path),
+            "--fs",
+            str(fs),
+            "--store",
+            str(store),
+            "--claim",
+            "low_t",
+            "--threshold",
+            "0.95",
+        ]
+    )
+    assert exit_code == 1
+    assert "REJECTED" in capsys.readouterr().out
+
+
+def test_verify_unknown_claim_fails_gracefully(tmp_path, capsys):
+    fs = 500
+    store = tmp_path / "store.npz"
+    signal_path = tmp_path / "sig.npy"
+    np.save(signal_path, _synthetic_multi_beat_signal(fs, 20, 72, seed=1))
+
+    assert cli.main(["enroll", "--file", str(signal_path), "--fs", str(fs), "--store", str(store)]) == 0
+    capsys.readouterr()
+
+    exit_code = cli.main(
+        [
+            "verify",
+            "--file",
+            str(signal_path),
+            "--fs",
+            str(fs),
+            "--store",
+            str(store),
+            "--claim",
+            "nobody",
+            "--threshold",
+            "0.5",
+        ]
+    )
+    assert exit_code == 1
+    assert "no enrollment found" in capsys.readouterr().err
+
+
+def test_verify_without_threshold_or_summary_fails_gracefully(tmp_path, capsys):
+    fs = 500
+    store = tmp_path / "store.npz"
+    signal_path = tmp_path / "sig.npy"
+    np.save(signal_path, _synthetic_multi_beat_signal(fs, 20, 72, seed=1))
+
+    assert cli.main(["enroll", "--file", str(signal_path), "--fs", str(fs), "--store", str(store)]) == 0
+    capsys.readouterr()
+
+    exit_code = cli.main(
+        [
+            "verify",
+            "--file",
+            str(signal_path),
+            "--fs",
+            str(fs),
+            "--store",
+            str(store),
+            "--claim",
+            "sig",
+            "--results-dir",
+            str(tmp_path / "no_results_here"),
+        ]
+    )
+    assert exit_code == 1
+    assert "no --threshold given" in capsys.readouterr().err
+
+
+def test_verify_without_enrollment_store_fails_gracefully(tmp_path, capsys):
+    fs = 500
+    query_path = tmp_path / "query.npy"
+    np.save(query_path, _synthetic_multi_beat_signal(fs, 20, 72))
+
+    exit_code = cli.main(
+        [
+            "verify",
+            "--file",
+            str(query_path),
+            "--fs",
+            str(fs),
+            "--store",
+            str(tmp_path / "missing.npz"),
+            "--claim",
+            "query",
+            "--threshold",
+            "0.5",
+        ]
+    )
+    assert exit_code == 1
+    assert "enroll subjects first" in capsys.readouterr().err
+
+
 def test_enroll_rejects_path_traversal_subject_id(capsys):
     exit_code = cli.main(["enroll", "../../etc", "--store", "/tmp/store.npz"])
     assert exit_code == 1

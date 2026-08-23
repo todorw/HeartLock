@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -86,6 +87,41 @@ def cmd_identify(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_verify(args: argparse.Namespace) -> int:
+    signal, fs, label = _load_signal(args)
+    clean = pp.preprocess(signal, fs, powerline_freq=args.powerline_freq)
+
+    store_path = _resolve_path(args.store)
+    if not store_path.exists():
+        print(f"no enrollment store found at {store_path}; enroll subjects first", file=sys.stderr)
+        return 1
+    enrollments = mm.load_enrollments(store_path)
+
+    threshold = args.threshold
+    if threshold is None:
+        results_dir = _resolve_path(args.results_dir)
+        summary_path = results_dir / f"{args.method}_summary.json"
+        if not summary_path.is_file():
+            print(
+                f"no --threshold given and no {summary_path} found; "
+                "either pass --threshold or run `heartlock evaluate` first",
+                file=sys.stderr,
+            )
+            return 1
+        threshold = json.loads(summary_path.read_text())["eer_threshold"]
+
+    try:
+        result = mm.verify(clean, fs, args.claim, enrollments, threshold, method=args.method)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    decision = "ACCEPTED" if result.accepted else "REJECTED"
+    print(f"query: {label}  claimed identity: {result.claimed_id}")
+    print(f"score: {result.score:.4f}  threshold: {result.threshold:.4f}  -> {decision}")
+    return 0 if result.accepted else 1
+
+
 def cmd_evaluate(args: argparse.Namespace) -> int:
     data_dir = _resolve_path(args.data_dir) if args.data_dir else None
     results_dir = _resolve_path(args.results_dir) if args.results_dir else None
@@ -138,6 +174,29 @@ def build_parser() -> argparse.ArgumentParser:
     )
     identify_parser.set_defaults(func=cmd_identify)
 
+    verify_parser = subparsers.add_parser(
+        "verify", help="1:1 verify an ECG snippet against a claimed identity"
+    )
+    add_common_signal_args(verify_parser)
+    verify_parser.add_argument("--claim", required=True, help="subject id being claimed")
+    verify_parser.add_argument(
+        "--method",
+        choices=["template_corr", "template_dtw", "fiducial"],
+        default="template_corr",
+        help="matching method (default: template_corr)",
+    )
+    verify_parser.add_argument(
+        "--threshold",
+        type=float,
+        default=None,
+        help="accept/reject score threshold (default: EER threshold from "
+        "results/<method>_summary.json, written by `heartlock evaluate`)",
+    )
+    verify_parser.add_argument(
+        "--results-dir", default="results", help="where to look for the evaluation summary (default: results)"
+    )
+    verify_parser.set_defaults(func=cmd_verify)
+
     evaluate_parser = subparsers.add_parser("evaluate", help="run cross-session ROC/EER evaluation")
     evaluate_parser.add_argument(
         "--method", choices=["template_corr", "template_dtw", "fiducial"], default="template_corr"
@@ -156,7 +215,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    if args.command in ("enroll", "identify") and not args.file and not args.subject:
+    if args.command in ("enroll", "identify", "verify") and not args.file and not args.subject:
         parser.error("either a subject id or --file must be given")
 
     try:
