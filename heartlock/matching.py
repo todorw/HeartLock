@@ -136,6 +136,104 @@ def fiducial_score(
     return -float(euclidean(z_query, z_enrolled))
 
 
+SINGLE_METHODS = ("template_corr", "template_dtw", "fiducial")
+
+# Equal weighting: template shape and fiducial landmarks are independent,
+# differently-failing feature types (the whole reason both were built), and
+# neither has a principled claim to being more reliable than the other.
+FUSION_TEMPLATE_WEIGHT = 0.5
+
+
+def _single_method_scores(
+    query_signal: np.ndarray,
+    fs: float,
+    enrollments: list[Enrollment],
+    method: str,
+    query_template: np.ndarray | None,
+) -> dict[str, float]:
+    """Raw (non-comparable-across-methods) scores for one matcher, against
+    every enrollment in `enrollments`. Shared by `identify`, `verify`, and
+    the "fusion" method, which needs both methods' scores over the same
+    candidate set to normalize and combine them.
+    """
+    if method == "template_corr":
+        return {
+            e.subject_id: (
+                template_correlation_score(query_template, e.template)
+                if query_template is not None
+                else -1.0
+            )
+            for e in enrollments
+        }
+    if method == "template_dtw":
+        return {
+            e.subject_id: (
+                template_dtw_score(query_template, e.template) if query_template is not None else 0.0
+            )
+            for e in enrollments
+        }
+    if method == "fiducial":
+        query_vector = extract_fiducial_features(query_signal, fs)
+        _, feature_std = fiducial_feature_stats(enrollments)
+        return {
+            e.subject_id: fiducial_score(query_vector, e.fiducial_vector, feature_std)
+            for e in enrollments
+        }
+    raise ValueError(f"unknown matching method {method!r}")
+
+
+def _zscore_across_candidates(scores: dict[str, float]) -> dict[str, float]:
+    """Z-normalize a method's scores across the current candidate set, so
+    two methods on incomparable raw scales (correlation in [-1,1] vs.
+    unbounded negative distance) can be combined. With too few candidates
+    or no spread to normalize against, every finite score maps to 0.0
+    (neutral) rather than being dropped.
+    """
+    finite = [v for v in scores.values() if np.isfinite(v)]
+    if len(finite) < 2 or np.std(finite) == 0:
+        return {sid: (0.0 if np.isfinite(v) else -np.inf) for sid, v in scores.items()}
+    mean, std = float(np.mean(finite)), float(np.std(finite))
+    return {sid: ((v - mean) / std if np.isfinite(v) else -np.inf) for sid, v in scores.items()}
+
+
+def _fusion_scores(
+    query_signal: np.ndarray,
+    fs: float,
+    enrollments: list[Enrollment],
+    query_template: np.ndarray | None,
+) -> dict[str, float]:
+    """Combine template-shape and fiducial-landmark scores via simple
+    weighted-average score-level fusion (standard in multi-modal biometric
+    systems): both methods' scores are z-normalized across the candidate
+    set, then averaged, so neither method's arbitrary raw scale dominates.
+    """
+    corr = _zscore_across_candidates(
+        _single_method_scores(query_signal, fs, enrollments, "template_corr", query_template)
+    )
+    fiducial = _zscore_across_candidates(
+        _single_method_scores(query_signal, fs, enrollments, "fiducial", query_template)
+    )
+    return {
+        sid: (
+            FUSION_TEMPLATE_WEIGHT * corr[sid] + (1 - FUSION_TEMPLATE_WEIGHT) * fiducial[sid]
+            if np.isfinite(corr[sid]) and np.isfinite(fiducial[sid])
+            else -np.inf
+        )
+        for sid in corr
+    }
+
+
+def _score_candidates(
+    query_signal: np.ndarray, fs: float, enrollments: list[Enrollment], method: str
+) -> dict[str, float]:
+    query_template = build_average_template(query_signal, fs)
+    if method == "fusion":
+        return _fusion_scores(query_signal, fs, enrollments, query_template)
+    if method in SINGLE_METHODS:
+        return _single_method_scores(query_signal, fs, enrollments, method, query_template)
+    raise ValueError(f"unknown matching method {method!r}")
+
+
 def identify(
     query_signal: np.ndarray,
     fs: float,
@@ -146,35 +244,14 @@ def identify(
 
     method: "template_corr" (cross-correlation of averaged beat template,
     default and generally most robust for short snippets), "template_dtw"
-    (DTW alignment of the same template), or "fiducial" (landmark-based
-    feature distance).
+    (DTW alignment of the same template), "fiducial" (landmark-based
+    feature distance), or "fusion" (z-normalized combination of
+    template_corr and fiducial - see `_fusion_scores`).
     """
     if not enrollments:
         return IdentificationResult(subject_id=None, confidence=0.0, scores={})
 
-    query_template = build_average_template(query_signal, fs)
-    scores: dict[str, float] = {}
-
-    if method == "template_corr":
-        for e in enrollments:
-            scores[e.subject_id] = (
-                template_correlation_score(query_template, e.template)
-                if query_template is not None
-                else -1.0
-            )
-    elif method == "template_dtw":
-        for e in enrollments:
-            scores[e.subject_id] = (
-                template_dtw_score(query_template, e.template) if query_template is not None else 0.0
-            )
-    elif method == "fiducial":
-        query_vector = extract_fiducial_features(query_signal, fs)
-        _, feature_std = fiducial_feature_stats(enrollments)
-        for e in enrollments:
-            scores[e.subject_id] = fiducial_score(query_vector, e.fiducial_vector, feature_std)
-    else:
-        raise ValueError(f"unknown matching method {method!r}")
-
+    scores = _score_candidates(query_signal, fs, enrollments, method)
     best_subject = max(scores, key=scores.get)
     return IdentificationResult(
         subject_id=best_subject, confidence=scores[best_subject], scores=scores
@@ -189,40 +266,24 @@ def verify(
     threshold: float,
     method: str = "template_corr",
 ) -> VerificationResult:
-    """1:1 verification: score the query only against the claimed subject's
-    own enrollment, and accept iff that score clears `threshold`.
+    """1:1 verification: score the query against the claimed subject's own
+    enrollment, and accept iff that score clears `threshold`.
 
     This is a different operation from `identify()`. Identification asks
     "who is this, out of everyone enrolled" (1:N, best match wins).
     Verification asks "is this really who they claim to be" (1:1, a
     threshold decision) - the operation an access-control-style system
     would actually use, and the one `evaluate()`'s EER/threshold numbers
-    describe.
+    describe. `method="fusion"` and `"fiducial"` still score against every
+    enrollment internally (for z-normalization / population stats
+    respectively), but only the claimed subject's score is returned.
     """
     claimed = next((e for e in enrollments if e.subject_id == claimed_id), None)
     if claimed is None:
         raise ValueError(f"no enrollment found for claimed subject {claimed_id!r}")
 
-    query_template = build_average_template(query_signal, fs)
-
-    if method == "template_corr":
-        score = (
-            template_correlation_score(query_template, claimed.template)
-            if query_template is not None
-            else -1.0
-        )
-    elif method == "template_dtw":
-        score = (
-            template_dtw_score(query_template, claimed.template)
-            if query_template is not None
-            else 0.0
-        )
-    elif method == "fiducial":
-        query_vector = extract_fiducial_features(query_signal, fs)
-        _, feature_std = fiducial_feature_stats(enrollments)
-        score = fiducial_score(query_vector, claimed.fiducial_vector, feature_std)
-    else:
-        raise ValueError(f"unknown matching method {method!r}")
+    scores = _score_candidates(query_signal, fs, enrollments, method)
+    score = scores[claimed_id]
 
     return VerificationResult(
         claimed_id=claimed_id, accepted=score >= threshold, score=score, threshold=threshold

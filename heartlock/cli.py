@@ -209,7 +209,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_common_signal_args(identify_parser)
     identify_parser.add_argument(
         "--method",
-        choices=["template_corr", "template_dtw", "fiducial"],
+        choices=["template_corr", "template_dtw", "fiducial", "fusion"],
         default="template_corr",
         help="matching method (default: template_corr)",
     )
@@ -222,7 +222,7 @@ def build_parser() -> argparse.ArgumentParser:
     verify_parser.add_argument("--claim", required=True, help="subject id being claimed")
     verify_parser.add_argument(
         "--method",
-        choices=["template_corr", "template_dtw", "fiducial"],
+        choices=["template_corr", "template_dtw", "fiducial", "fusion"],
         default="template_corr",
         help="matching method (default: template_corr)",
     )
@@ -255,7 +255,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     evaluate_parser = subparsers.add_parser("evaluate", help="run cross-session ROC/EER evaluation")
     evaluate_parser.add_argument(
-        "--method", choices=["template_corr", "template_dtw", "fiducial"], default="template_corr"
+        "--method", choices=["template_corr", "template_dtw", "fiducial", "fusion"], default="template_corr"
     )
     evaluate_parser.add_argument("--enroll-session", type=int, default=1)
     evaluate_parser.add_argument("--test-session", type=int, default=2)

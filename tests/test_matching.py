@@ -187,6 +187,48 @@ def test_verify_unknown_claimed_id_raises(enrolled_synthetic_subjects):
         mm.verify(query, fs=fs, claimed_id="Person_Nobody", enrollments=enrollments, threshold=0.5)
 
 
+def test_identify_fusion_picks_correct_subject(enrolled_synthetic_subjects):
+    enrollments, fs = enrolled_synthetic_subjects
+    query = _synthetic_multi_beat_signal(fs, 20, 72, t_amplitude=0.6, seed=99)
+    result = mm.identify(query, fs=fs, enrollments=enrollments, method="fusion")
+    assert result.subject_id == "Person_High_T"
+    assert set(result.scores) == {"Person_Low_T", "Person_High_T"}
+
+
+def test_verify_fusion_accepts_genuine_and_rejects_impostor(enrolled_synthetic_subjects):
+    enrollments, fs = enrolled_synthetic_subjects
+    query = _synthetic_multi_beat_signal(fs, 20, 72, t_amplitude=0.6, seed=99)
+
+    genuine = mm.verify(
+        query, fs=fs, claimed_id="Person_High_T", enrollments=enrollments, threshold=0.0, method="fusion"
+    )
+    impostor = mm.verify(
+        query, fs=fs, claimed_id="Person_Low_T", enrollments=enrollments, threshold=0.0, method="fusion"
+    )
+    assert genuine.accepted
+    assert not impostor.accepted
+    assert genuine.score > impostor.score
+
+
+def test_zscore_across_candidates_neutral_with_no_spread():
+    scores = {"A": 0.5, "B": 0.5}
+    z = mm._zscore_across_candidates(scores)
+    assert z == {"A": 0.0, "B": 0.0}
+
+
+def test_zscore_across_candidates_preserves_ranking():
+    scores = {"A": 0.9, "B": 0.5, "C": 0.1}
+    z = mm._zscore_across_candidates(scores)
+    assert z["A"] > z["B"] > z["C"]
+    assert pytest.approx(sum(z.values()), abs=1e-9) == 0.0
+
+
+def test_zscore_across_candidates_maps_nonfinite_to_neg_inf():
+    scores = {"A": 0.9, "B": -np.inf}
+    z = mm._zscore_across_candidates(scores)
+    assert z["B"] == -np.inf
+
+
 def test_verify_unknown_method_raises(enrolled_synthetic_subjects):
     enrollments, fs = enrolled_synthetic_subjects
     query = _synthetic_multi_beat_signal(fs, 20, 72, seed=99)
