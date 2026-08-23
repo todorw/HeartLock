@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "heartlock"
+version = "0.1.0"
+description = "ECG-based biometric identification research tool"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+dependencies = [
+    "numpy==2.5.2",
+    "scipy==1.18.1",
+    "wfdb==4.3.1",
+    "matplotlib==3.11.1",
+    "fastdtw==0.3.4",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==9.1.1",
+    "bandit==1.9.4",
+]
+
+[project.scripts]
+heartlock = "heartlock.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["heartlock*"]
