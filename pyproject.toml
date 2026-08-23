@@ -28,3 +28,8 @@ heartlock = "heartlock.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["heartlock*"]
+
+[tool.pytest.ini_options]
+markers = [
+    "network: tests that fetch data from PhysioNet (require internet access)",
+]
