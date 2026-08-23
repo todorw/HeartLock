@@ -13,6 +13,7 @@ from heartlock import data_loader as dl
 from heartlock import evaluation as ev
 from heartlock import matching as mm
 from heartlock import preprocessing as pp
+from heartlock import visualization as viz
 
 DEFAULT_STORE = "enrollments.npz"
 
@@ -87,6 +88,15 @@ def cmd_identify(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_plot(args: argparse.Namespace) -> int:
+    signal, fs, label = _load_signal(args)
+    out_path = _resolve_path(args.out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    viz.plot_pipeline(signal, fs, label, out_path, powerline_freq=args.powerline_freq)
+    print(f"wrote pipeline plot for {label!r} to {out_path}")
+    return 0
+
+
 def cmd_verify(args: argparse.Namespace) -> int:
     signal, fs, label = _load_signal(args)
     clean = pp.preprocess(signal, fs, powerline_freq=args.powerline_freq)
@@ -149,7 +159,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="heartlock", description="ECG-based biometric identification")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    def add_common_signal_args(sub: argparse.ArgumentParser) -> None:
+    def add_common_signal_args(sub: argparse.ArgumentParser, include_store: bool = True) -> None:
         sub.add_argument("subject", nargs="?", help="ECG-ID subject id, e.g. Person_01")
         sub.add_argument("--session", type=int, default=1, help="recording session number (default: 1)")
         sub.add_argument("--file", help="load a raw signal from a local .npy file instead")
@@ -158,7 +168,10 @@ def build_parser() -> argparse.ArgumentParser:
         sub.add_argument(
             "--powerline-freq", type=float, default=50.0, help="powerline notch frequency (default: 50)"
         )
-        sub.add_argument("--store", default=DEFAULT_STORE, help="enrollment store file (default: enrollments.npz)")
+        if include_store:
+            sub.add_argument(
+                "--store", default=DEFAULT_STORE, help="enrollment store file (default: enrollments.npz)"
+            )
 
     enroll_parser = subparsers.add_parser("enroll", help="enroll a subject's ECG recording")
     add_common_signal_args(enroll_parser)
@@ -197,6 +210,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     verify_parser.set_defaults(func=cmd_verify)
 
+    plot_parser = subparsers.add_parser(
+        "plot", help="visualize the pipeline (raw signal, R-peaks, beat template) for one recording"
+    )
+    add_common_signal_args(plot_parser, include_store=False)
+    plot_parser.add_argument(
+        "--out", default="results/pipeline.png", help="output image path (default: results/pipeline.png)"
+    )
+    plot_parser.set_defaults(func=cmd_plot)
+
     evaluate_parser = subparsers.add_parser("evaluate", help="run cross-session ROC/EER evaluation")
     evaluate_parser.add_argument(
         "--method", choices=["template_corr", "template_dtw", "fiducial"], default="template_corr"
@@ -215,7 +237,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    if args.command in ("enroll", "identify", "verify") and not args.file and not args.subject:
+    if args.command in ("enroll", "identify", "verify", "plot") and not args.file and not args.subject:
         parser.error("either a subject id or --file must be given")
 
     try:

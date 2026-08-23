@@ -256,6 +256,20 @@ def test_verify_without_enrollment_store_fails_gracefully(tmp_path, capsys):
     assert "enroll subjects first" in capsys.readouterr().err
 
 
+def test_plot_writes_image_file_via_files(tmp_path, capsys):
+    fs = 500
+    signal_path = tmp_path / "sig.npy"
+    np.save(signal_path, _synthetic_multi_beat_signal(fs, 20, 72, seed=1))
+    out_path = tmp_path / "pipeline.png"
+
+    exit_code = cli.main(
+        ["plot", "--file", str(signal_path), "--fs", str(fs), "--out", str(out_path)]
+    )
+    assert exit_code == 0
+    assert out_path.is_file()
+    assert "wrote pipeline plot" in capsys.readouterr().out
+
+
 def test_enroll_rejects_path_traversal_subject_id(capsys):
     exit_code = cli.main(["enroll", "../../etc", "--store", "/tmp/store.npz"])
     assert exit_code == 1
