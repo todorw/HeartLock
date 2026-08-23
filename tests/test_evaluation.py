@@ -72,6 +72,57 @@ def test_qualifying_subjects_respects_max_subjects(tmp_path, monkeypatch):
     assert result_all == ["A", "B"]
 
 
+def _pair_scores_two_subjects():
+    """4 subjects enrolled; A and B have noticeably noisier/higher impostor
+    scores than C and D, so per-subject normalization should matter.
+    """
+    pair_scores = []
+    # genuine scores, one per subject
+    pair_scores += [("A", "A", 0.95), ("B", "B", 0.93), ("C", "C", 0.9), ("D", "D", 0.88)]
+    # A and B run "hot": their impostor scores hover close to their genuine
+    for other in ["B", "C", "D"]:
+        pair_scores.append((other, "A", 0.8))
+    for other in ["A", "C", "D"]:
+        pair_scores.append((other, "B", 0.78))
+    # C and D run "cool": clearly separated impostor scores
+    for other in ["A", "B", "D"]:
+        pair_scores.append((other, "C", 0.3))
+    for other in ["A", "B", "C"]:
+        pair_scores.append((other, "D", 0.28))
+    return pair_scores
+
+
+def test_subject_score_stats_excludes_genuine_scores():
+    pair_scores = _pair_scores_two_subjects()
+    stats = ev.subject_score_stats(pair_scores, min_impostor_samples=3)
+    assert set(stats) == {"A", "B", "C", "D"}
+    mean_a, std_a = stats["A"]
+    assert mean_a == pytest.approx(0.8, abs=1e-9)
+    assert std_a == pytest.approx(0.0, abs=1e-6) or std_a == 1.0  # constant scores -> std floored to 1.0
+
+
+def test_subject_score_stats_skips_sparse_subjects():
+    pair_scores = [("A", "A", 0.9), ("B", "A", 0.5)]  # only 1 impostor probe
+    stats = ev.subject_score_stats(pair_scores, min_impostor_samples=3)
+    assert stats == {}
+
+
+def test_per_subject_thresholds_differ_by_subject_noise_level():
+    pair_scores = _pair_scores_two_subjects()
+    thresholds = ev.per_subject_thresholds(pair_scores)
+    assert set(thresholds) == {"A", "B", "C", "D"}
+    # A/B's impostor scores sit right at their genuine score (0.8 vs 0.95,
+    # 0.78 vs 0.93) so their calibrated threshold should land well above
+    # C/D's, whose impostors are far below their genuine score.
+    assert thresholds["A"] > thresholds["C"]
+    assert thresholds["B"] > thresholds["D"]
+
+
+def test_per_subject_thresholds_empty_without_enough_data():
+    pair_scores = [("A", "A", 0.9), ("B", "A", 0.5)]
+    assert ev.per_subject_thresholds(pair_scores) == {}
+
+
 @pytest.mark.network
 def test_run_evaluation_end_to_end(tmp_path):
     summary = ev.run_evaluation(
