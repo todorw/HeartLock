@@ -41,6 +41,10 @@ class CrossSessionScores:
     # the run, kept alongside the flattened genuine/impostor arrays above
     # so per-subject threshold calibration can re-group them by candidate.
     pair_scores: list[tuple[str, str, float]]
+    # (true subject, wrongly-predicted subject) for every rank-1 miss, so
+    # errors can be inspected by who gets confused with whom rather than
+    # just counted.
+    misclassifications: list[tuple[str, str]]
 
 
 @dataclass
@@ -57,6 +61,7 @@ class EvaluationSummary:
     eer_threshold: float
     auc: float
     per_subject_thresholds: dict[str, float]
+    misclassifications: list[tuple[str, str]]
 
 
 def qualifying_subjects(
@@ -102,6 +107,7 @@ def run_cross_session_evaluation(
     genuine_scores: list[float] = []
     impostor_scores: list[float] = []
     pair_scores: list[tuple[str, str, float]] = []
+    misclassifications: list[tuple[str, str]] = []
     rank1_correct = 0
     rank1_total = 0
 
@@ -117,6 +123,8 @@ def run_cross_session_evaluation(
         rank1_total += 1
         if result.subject_id == sid:
             rank1_correct += 1
+        else:
+            misclassifications.append((sid, result.subject_id))
 
         for candidate_id, score in result.scores.items():
             if not np.isfinite(score):
@@ -136,6 +144,7 @@ def run_cross_session_evaluation(
         n_subjects=len(enrollments),
         n_queries=rank1_total,
         pair_scores=pair_scores,
+        misclassifications=misclassifications,
     )
 
 
@@ -350,6 +359,7 @@ def run_evaluation(
         eer_threshold=eer_threshold,
         auc=auc,
         per_subject_thresholds=subject_thresholds,
+        misclassifications=scores.misclassifications,
     )
 
     if results_dir is not None:

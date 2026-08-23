@@ -123,6 +123,69 @@ def test_per_subject_thresholds_empty_without_enough_data():
     assert ev.per_subject_thresholds(pair_scores) == {}
 
 
+def _synthetic_multi_beat_signal(fs, duration_s, heart_rate_bpm, t_amplitude=0.3, seed=0):
+    n = int(duration_s * fs)
+    t = np.arange(n) / fs
+    signal = np.zeros(n)
+    rr = 60.0 / heart_rate_bpm
+    for bt in np.arange(0.5, duration_s - 0.5, rr):
+        signal += 1.5 * np.exp(-0.5 * ((t - bt) / 0.015) ** 2)
+        signal += t_amplitude * np.exp(-0.5 * ((t - (bt + 0.25)) / 0.08) ** 2)
+    rng = np.random.default_rng(seed)
+    signal += rng.normal(0, 0.01, size=n)
+    return signal
+
+
+def test_run_cross_session_evaluation_reports_misclassifications(monkeypatch):
+    import heartlock.data_loader as dl
+    from heartlock.data_loader import ECGRecord
+
+    fs = 500
+    signal_a = _synthetic_multi_beat_signal(fs, 20, 72, t_amplitude=0.15, seed=1)
+    signal_b = _synthetic_multi_beat_signal(fs, 20, 72, t_amplitude=0.6, seed=2)
+
+    def fake_load_record(subject_id, session, data_dir=None):
+        if session == 1:
+            signal = signal_a if subject_id == "A" else signal_b
+        else:
+            # both subjects' "session 2" recording is actually B's signal,
+            # so A's query is guaranteed to be misidentified as B while
+            # B's own query is still correctly identified as B.
+            signal = signal_b
+        return ECGRecord(subject_id=subject_id, session=session, signal=signal, fs=fs)
+
+    monkeypatch.setattr(dl, "load_record", fake_load_record)
+
+    scores = ev.run_cross_session_evaluation(
+        ["A", "B"], enroll_session=1, test_session=2, method="template_corr"
+    )
+
+    assert scores.misclassifications == [("A", "B")]
+    assert scores.rank1_accuracy == pytest.approx(0.5)
+
+
+def test_run_cross_session_evaluation_no_misclassifications_when_all_correct(monkeypatch):
+    import heartlock.data_loader as dl
+    from heartlock.data_loader import ECGRecord
+
+    fs = 500
+    signal_a = _synthetic_multi_beat_signal(fs, 20, 72, t_amplitude=0.15, seed=1)
+    signal_b = _synthetic_multi_beat_signal(fs, 20, 72, t_amplitude=0.6, seed=2)
+    signals = {"A": signal_a, "B": signal_b}
+
+    def fake_load_record(subject_id, session, data_dir=None):
+        return ECGRecord(subject_id=subject_id, session=session, signal=signals[subject_id], fs=fs)
+
+    monkeypatch.setattr(dl, "load_record", fake_load_record)
+
+    scores = ev.run_cross_session_evaluation(
+        ["A", "B"], enroll_session=1, test_session=2, method="template_corr"
+    )
+
+    assert scores.misclassifications == []
+    assert scores.rank1_accuracy == pytest.approx(1.0)
+
+
 @pytest.mark.network
 def test_run_evaluation_end_to_end(tmp_path):
     summary = ev.run_evaluation(

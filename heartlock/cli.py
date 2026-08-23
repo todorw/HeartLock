@@ -182,6 +182,12 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
         f"per-subject thresholds calibrated for {len(summary.per_subject_thresholds)}"
         f"/{summary.n_subjects} subjects (used automatically by `heartlock verify`)"
     )
+    if summary.misclassifications:
+        print(f"misclassified ({len(summary.misclassifications)}):")
+        for true_id, predicted_id in summary.misclassifications:
+            print(f"  {true_id} -> predicted {predicted_id}")
+    else:
+        print("no misclassifications")
     if results_dir:
         print(f"plots and summary written to {results_dir}")
     return 0
