@@ -82,7 +82,8 @@ raw signal → preprocessing → R-peak detection → feature extraction → mat
    scores every *other* subject got against them), a single EER threshold
    is found in that normalized space, and it's mapped back to each
    subject's own raw score scale.
-7. **`cli.py`** — `heartlock enroll` / `identify` / `verify` / `evaluate`.
+7. **`cli.py`** — `heartlock enroll` / `identify` / `verify` / `list` /
+   `plot` / `evaluate`.
 
 ## Install
 
@@ -110,14 +111,20 @@ heartlock identify --file my_snippet.npy --fs 500
 # 1:1 verify a claimed identity (accept/reject, not a ranked match)
 heartlock verify Person_01 --session 2 --claim Person_01
 
+# see who's currently enrolled
+heartlock list
+
 # cross-session ROC/EER evaluation over a batch of subjects
 heartlock evaluate --method template_corr --enroll-session 1 --test-session 2 --max-subjects 30
 ```
 
 `--method` on `identify`/`verify`/`evaluate` selects the matcher:
 `template_corr` (cross-correlation of the averaged beat template, the
-default), `template_dtw` (DTW alignment of the same template), or
-`fiducial` (landmark-feature distance).
+default), `template_dtw` (DTW alignment of the same template), `fiducial`
+(landmark-feature distance), or `fusion` (a weighted, z-normalized
+combination of `template_corr` and `fiducial` — two independent,
+differently-failing feature types, typically more robust together than
+either alone; see `matching.py`).
 
 `identify` is 1:N: "who, out of everyone enrolled, does this look like?"
 `verify` is the different, 1:1 question an access-control-style system
@@ -158,6 +165,9 @@ and `<method>_far_frr.png` to `results/`:
 - **`per_subject_thresholds`** — a calibrated accept/reject threshold for
   each enrolled subject (see `matching.py` above), used automatically by
   `heartlock verify`.
+- **`misclassifications`** — every rank-1 miss as a (true subject,
+  predicted subject) pair, printed by the CLI, so errors can be inspected
+  by who gets confused with whom rather than just counted.
 
 With `template_corr` on a 15-subject cross-session run (session 1 enrolled,
 session 2 tested), this pipeline gets roughly 90%+ rank-1 accuracy and a
