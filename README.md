@@ -35,6 +35,15 @@ PhysioNet: 90 subjects, 310 recordings total (2-20 sessions per subject,
 research. Fetched on demand via `wfdb` and cached locally in `data/`
 (gitignored — never committed).
 
+If ECG-ID is unreachable, `enroll`/`identify`/`verify`/`plot` accept
+`--source mitbih` to fall back to the [MIT-BIH Arrhythmia
+Database](https://physionet.org/content/mitdb/1.0.0/) instead (48
+records, ~30min each at 360 Hz, subject/record ids are plain numbers like
+`100`). It has no repeat sessions per subject, so it can't be used with
+`evaluate`'s cross-session test — it exists purely so the rest of the
+pipeline still has real ECG data to run against if PhysioNet's ECG-ID
+mirror is down.
+
 ## Pipeline
 
 ```
@@ -146,6 +155,9 @@ and `<method>_far_frr.png` to `results/`:
 - **ROC curve / AUC** — true-accept rate vs false-accept rate across all
   thresholds; AUC close to 1.0 means genuine and impostor score
   distributions barely overlap.
+- **`per_subject_thresholds`** — a calibrated accept/reject threshold for
+  each enrolled subject (see `matching.py` above), used automatically by
+  `heartlock verify`.
 
 With `template_corr` on a 15-subject cross-session run (session 1 enrolled,
 session 2 tested), this pipeline gets roughly 90%+ rank-1 accuracy and a
@@ -171,4 +183,8 @@ pytest -m "not network"      # skip tests that need internet access
   irregular RR intervals. Evaluation aggregates the median beat, which is
   fairly robust to a handful of bad beats, but very noisy recordings will
   still drag down that subject's match quality.
-- No MIT-BIH fallback is implemented; ECG-ID has been reliably available.
+- The MIT-BIH fallback (`--source mitbih`) uses a different lead (`MLII`)
+  and sample rate (360 Hz vs ECG-ID's 500 Hz) than the primary dataset, so
+  matching a MIT-BIH enrollment against an ECG-ID query (or vice versa)
+  isn't meaningful — it's a same-dataset fallback, not a bridge between
+  the two.
