@@ -65,7 +65,14 @@ raw signal → preprocessing → R-peak detection → feature extraction → mat
    actually use.
 6. **`evaluation.py`** — the actual biometric test: enroll on one session,
    identify on a *different* session of the same subjects, and report
-   rank-1 accuracy plus a proper ROC curve and Equal Error Rate (EER).
+   rank-1 accuracy plus a proper ROC curve and Equal Error Rate (EER). Also
+   calibrates a **per-subject decision threshold** for `verify`: some
+   enrolled templates score consistently higher/noisier against everyone
+   than others do, so a single global threshold over- or under-protects
+   them. Each subject's impostor scores are Z-normalized (mean/std of the
+   scores every *other* subject got against them), a single EER threshold
+   is found in that normalized space, and it's mapped back to each
+   subject's own raw score scale.
 7. **`cli.py`** — `heartlock enroll` / `identify` / `verify` / `evaluate`.
 
 ## Install
@@ -108,9 +115,17 @@ default), `template_dtw` (DTW alignment of the same template), or
 actually asks: "does this match the identity being *claimed*?" It accepts
 or rejects based on a score threshold rather than returning a ranked
 list. If `--threshold` isn't given, it's read from
-`results/<method>_summary.json` (the EER threshold from the last
-`heartlock evaluate` run for that method) — run `evaluate` first, or pass
-`--threshold` explicitly.
+`results/<method>_summary.json` — the claimed subject's own per-subject
+EER threshold if that subject was in the last `evaluate` run (pass
+`--no-per-subject-threshold` to always use the global one instead), else
+the global EER threshold. Run `evaluate` first, or pass `--threshold`
+explicitly.
+
+```bash
+# visualize the pipeline: raw signal, filtered signal + detected
+# R-peaks, and the averaged beat template used for matching
+heartlock plot Person_01 --session 1 --out results/person_01_pipeline.png
+```
 
 ## Interpreting the evaluation output
 
