@@ -223,11 +223,25 @@ def _fusion_scores(
     }
 
 
+MIN_ENROLLMENTS_FOR_FUSION = 2
+
+
 def _score_candidates(
     query_signal: np.ndarray, fs: float, enrollments: list[Enrollment], method: str
 ) -> dict[str, float]:
     query_template = build_average_template(query_signal, fs)
     if method == "fusion":
+        if len(enrollments) < MIN_ENROLLMENTS_FOR_FUSION:
+            # _zscore_across_candidates can't normalize against a
+            # population of one - it would silently return a constant
+            # 0.0 for the only candidate regardless of actual match
+            # quality, which is a wrong score for verify to threshold
+            # against, not just a degraded one.
+            raise ValueError(
+                "the fusion method needs at least 2 enrolled subjects to normalize "
+                "scores against; use method='template_corr' or 'fiducial' directly "
+                "for a single-subject enrollment store"
+            )
         return _fusion_scores(query_signal, fs, enrollments, query_template)
     if method in SINGLE_METHODS:
         return _single_method_scores(query_signal, fs, enrollments, method, query_template)

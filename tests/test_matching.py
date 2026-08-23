@@ -210,6 +210,22 @@ def test_verify_fusion_accepts_genuine_and_rejects_impostor(enrolled_synthetic_s
     assert genuine.score > impostor.score
 
 
+def test_identify_fusion_rejects_single_enrollment():
+    fs = 500
+    signal = _synthetic_multi_beat_signal(fs, 20, 72, seed=1)
+    enrollments = [mm.enroll_subject(signal, fs, "Solo")]
+    with pytest.raises(ValueError, match="at least 2 enrolled subjects"):
+        mm.identify(signal, fs=fs, enrollments=enrollments, method="fusion")
+
+
+def test_verify_fusion_rejects_single_enrollment():
+    fs = 500
+    signal = _synthetic_multi_beat_signal(fs, 20, 72, seed=1)
+    enrollments = [mm.enroll_subject(signal, fs, "Solo")]
+    with pytest.raises(ValueError, match="at least 2 enrolled subjects"):
+        mm.verify(signal, fs=fs, claimed_id="Solo", enrollments=enrollments, threshold=0.0, method="fusion")
+
+
 def test_zscore_across_candidates_neutral_with_no_spread():
     scores = {"A": 0.5, "B": 0.5}
     z = mm._zscore_across_candidates(scores)
