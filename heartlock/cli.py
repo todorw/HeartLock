@@ -143,6 +143,23 @@ def cmd_verify(args: argparse.Namespace) -> int:
     return 0 if result.accepted else 1
 
 
+def cmd_list(args: argparse.Namespace) -> int:
+    store_path = _resolve_path(args.store)
+    if not store_path.exists():
+        print(f"no enrollment store found at {store_path}", file=sys.stderr)
+        return 1
+
+    enrollments = mm.load_enrollments(store_path)
+    if not enrollments:
+        print(f"{store_path}: no subjects enrolled")
+        return 0
+
+    print(f"{store_path}: {len(enrollments)} subject(s) enrolled")
+    for e in sorted(enrollments, key=lambda e: e.subject_id):
+        print(f"  {e.subject_id}")
+    return 0
+
+
 def cmd_evaluate(args: argparse.Namespace) -> int:
     data_dir = _resolve_path(args.data_dir) if args.data_dir else None
     results_dir = _resolve_path(args.results_dir) if args.results_dir else None
@@ -252,6 +269,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--out", default="results/pipeline.png", help="output image path (default: results/pipeline.png)"
     )
     plot_parser.set_defaults(func=cmd_plot)
+
+    list_parser = subparsers.add_parser("list", help="list subjects in an enrollment store")
+    list_parser.add_argument(
+        "--store", default=DEFAULT_STORE, help="enrollment store file (default: enrollments.npz)"
+    )
+    list_parser.set_defaults(func=cmd_list)
 
     evaluate_parser = subparsers.add_parser("evaluate", help="run cross-session ROC/EER evaluation")
     evaluate_parser.add_argument(

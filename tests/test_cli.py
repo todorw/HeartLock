@@ -364,6 +364,45 @@ def test_plot_writes_image_file_via_files(tmp_path, capsys):
     assert "wrote pipeline plot" in capsys.readouterr().out
 
 
+def test_list_missing_store_fails_gracefully(tmp_path, capsys):
+    exit_code = cli.main(["list", "--store", str(tmp_path / "missing.npz")])
+    assert exit_code == 1
+    assert "no enrollment store found" in capsys.readouterr().err
+
+
+def test_list_empty_store_reports_no_subjects(tmp_path, capsys):
+    import numpy as np
+
+    from heartlock import matching as mm
+
+    store = tmp_path / "store.npz"
+    mm.save_enrollments([], store)
+
+    exit_code = cli.main(["list", "--store", str(store)])
+    assert exit_code == 0
+    assert "no subjects enrolled" in capsys.readouterr().out
+
+
+def test_list_reports_enrolled_subjects(tmp_path, capsys):
+    fs = 500
+    store = tmp_path / "store.npz"
+
+    low_t_path = tmp_path / "low_t.npy"
+    high_t_path = tmp_path / "high_t.npy"
+    np.save(low_t_path, _synthetic_multi_beat_signal(fs, 20, 72, t_amplitude=0.15, seed=1))
+    np.save(high_t_path, _synthetic_multi_beat_signal(fs, 20, 72, t_amplitude=0.6, seed=2))
+    assert cli.main(["enroll", "--file", str(low_t_path), "--fs", str(fs), "--store", str(store)]) == 0
+    assert cli.main(["enroll", "--file", str(high_t_path), "--fs", str(fs), "--store", str(store)]) == 0
+    capsys.readouterr()
+
+    exit_code = cli.main(["list", "--store", str(store)])
+    out = capsys.readouterr().out
+    assert exit_code == 0
+    assert "2 subject(s) enrolled" in out
+    assert "low_t" in out
+    assert "high_t" in out
+
+
 def test_enroll_rejects_path_traversal_subject_id(capsys):
     exit_code = cli.main(["enroll", "../../etc", "--store", "/tmp/store.npz"])
     assert exit_code == 1
