@@ -108,6 +108,7 @@ def cmd_verify(args: argparse.Namespace) -> int:
     enrollments = mm.load_enrollments(store_path)
 
     threshold = args.threshold
+    threshold_source = "--threshold"
     if threshold is None:
         results_dir = _resolve_path(args.results_dir)
         summary_path = results_dir / f"{args.method}_summary.json"
@@ -118,7 +119,14 @@ def cmd_verify(args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
             return 1
-        threshold = json.loads(summary_path.read_text())["eer_threshold"]
+        summary = json.loads(summary_path.read_text())
+        per_subject = summary.get("per_subject_thresholds", {})
+        if not args.no_per_subject_threshold and args.claim in per_subject:
+            threshold = per_subject[args.claim]
+            threshold_source = "per-subject EER threshold"
+        else:
+            threshold = summary["eer_threshold"]
+            threshold_source = "global EER threshold"
 
     try:
         result = mm.verify(clean, fs, args.claim, enrollments, threshold, method=args.method)
@@ -128,7 +136,10 @@ def cmd_verify(args: argparse.Namespace) -> int:
 
     decision = "ACCEPTED" if result.accepted else "REJECTED"
     print(f"query: {label}  claimed identity: {result.claimed_id}")
-    print(f"score: {result.score:.4f}  threshold: {result.threshold:.4f}  -> {decision}")
+    print(
+        f"score: {result.score:.4f}  threshold: {result.threshold:.4f} "
+        f"({threshold_source})  -> {decision}"
+    )
     return 0 if result.accepted else 1
 
 
@@ -150,6 +161,10 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
     print(f"rank-1 accuracy: {summary.rank1_accuracy:.4f}")
     print(f"EER: {summary.eer:.4f}  (at threshold {summary.eer_threshold:.4f})")
     print(f"AUC: {summary.auc:.4f}")
+    print(
+        f"per-subject thresholds calibrated for {len(summary.per_subject_thresholds)}"
+        f"/{summary.n_subjects} subjects (used automatically by `heartlock verify`)"
+    )
     if results_dir:
         print(f"plots and summary written to {results_dir}")
     return 0
@@ -202,8 +217,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--threshold",
         type=float,
         default=None,
-        help="accept/reject score threshold (default: EER threshold from "
-        "results/<method>_summary.json, written by `heartlock evaluate`)",
+        help="accept/reject score threshold (default: the claimed subject's per-subject "
+        "EER threshold from results/<method>_summary.json if available, else the global "
+        "EER threshold from the same file, written by `heartlock evaluate`)",
+    )
+    verify_parser.add_argument(
+        "--no-per-subject-threshold",
+        action="store_true",
+        help="always use the global EER threshold, even if a per-subject one is available",
     )
     verify_parser.add_argument(
         "--results-dir", default="results", help="where to look for the evaluation summary (default: results)"

@@ -176,6 +176,100 @@ def test_verify_rejects_impostor_claim_via_files(tmp_path, capsys):
     assert "REJECTED" in capsys.readouterr().out
 
 
+def test_verify_prefers_per_subject_threshold_over_global(tmp_path, capsys):
+    import json
+
+    fs = 500
+    store = tmp_path / "store.npz"
+
+    low_t_path = tmp_path / "low_t.npy"
+    high_t_path = tmp_path / "high_t.npy"
+    np.save(low_t_path, _synthetic_multi_beat_signal(fs, 20, 72, t_amplitude=0.15, seed=1))
+    np.save(high_t_path, _synthetic_multi_beat_signal(fs, 20, 72, t_amplitude=0.6, seed=2))
+    assert cli.main(["enroll", "--file", str(low_t_path), "--fs", str(fs), "--store", str(store)]) == 0
+    assert cli.main(["enroll", "--file", str(high_t_path), "--fs", str(fs), "--store", str(store)]) == 0
+    capsys.readouterr()
+
+    results_dir = tmp_path / "results"
+    results_dir.mkdir()
+    # global threshold (0.99) would reject; per-subject threshold for
+    # "high_t" (0.5) should accept instead, proving it's actually used.
+    (results_dir / "template_corr_summary.json").write_text(
+        json.dumps({"eer_threshold": 0.99, "per_subject_thresholds": {"high_t": 0.5}})
+    )
+
+    query_path = tmp_path / "query.npy"
+    np.save(query_path, _synthetic_multi_beat_signal(fs, 20, 72, t_amplitude=0.6, seed=99))
+
+    exit_code = cli.main(
+        [
+            "verify",
+            "--file",
+            str(query_path),
+            "--fs",
+            str(fs),
+            "--store",
+            str(store),
+            "--claim",
+            "high_t",
+            "--results-dir",
+            str(results_dir),
+        ]
+    )
+    out = capsys.readouterr().out
+    assert exit_code == 0
+    assert "per-subject EER threshold" in out
+    assert "ACCEPTED" in out
+
+
+def test_verify_no_per_subject_threshold_flag_uses_global(tmp_path, capsys):
+    import json
+
+    fs = 500
+    store = tmp_path / "store.npz"
+
+    low_t_path = tmp_path / "low_t.npy"
+    high_t_path = tmp_path / "high_t.npy"
+    np.save(low_t_path, _synthetic_multi_beat_signal(fs, 20, 72, t_amplitude=0.15, seed=1))
+    np.save(high_t_path, _synthetic_multi_beat_signal(fs, 20, 72, t_amplitude=0.6, seed=2))
+    assert cli.main(["enroll", "--file", str(low_t_path), "--fs", str(fs), "--store", str(store)]) == 0
+    assert cli.main(["enroll", "--file", str(high_t_path), "--fs", str(fs), "--store", str(store)]) == 0
+    capsys.readouterr()
+
+    results_dir = tmp_path / "results"
+    results_dir.mkdir()
+    # per-subject threshold (0.5) would accept; a threshold above the max
+    # possible correlation score (1.0) should reject instead, proving
+    # --no-per-subject-threshold is honored.
+    (results_dir / "template_corr_summary.json").write_text(
+        json.dumps({"eer_threshold": 1.5, "per_subject_thresholds": {"high_t": 0.5}})
+    )
+
+    query_path = tmp_path / "query.npy"
+    np.save(query_path, _synthetic_multi_beat_signal(fs, 20, 72, t_amplitude=0.6, seed=99))
+
+    exit_code = cli.main(
+        [
+            "verify",
+            "--file",
+            str(query_path),
+            "--fs",
+            str(fs),
+            "--store",
+            str(store),
+            "--claim",
+            "high_t",
+            "--results-dir",
+            str(results_dir),
+            "--no-per-subject-threshold",
+        ]
+    )
+    out = capsys.readouterr().out
+    assert exit_code == 1
+    assert "global EER threshold" in out
+    assert "REJECTED" in out
+
+
 def test_verify_unknown_claim_fails_gracefully(tmp_path, capsys):
     fs = 500
     store = tmp_path / "store.npz"
