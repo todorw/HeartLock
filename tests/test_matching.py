@@ -161,3 +161,36 @@ def test_fiducial_feature_stats_shapes(synthetic_enrollments):
     assert mean.shape == (10,)
     assert std.shape == (10,)
     assert np.all(std > 0)
+
+
+def test_verify_accepts_genuine_claim(enrolled_synthetic_subjects):
+    enrollments, fs = enrolled_synthetic_subjects
+    query = _synthetic_multi_beat_signal(fs, 20, 72, t_amplitude=0.6, seed=99)
+    result = mm.verify(query, fs=fs, claimed_id="Person_High_T", enrollments=enrollments, threshold=0.95)
+    assert result.accepted
+    assert result.claimed_id == "Person_High_T"
+    assert result.score >= result.threshold
+
+
+def test_verify_rejects_impostor_claim(enrolled_synthetic_subjects):
+    enrollments, fs = enrolled_synthetic_subjects
+    query = _synthetic_multi_beat_signal(fs, 20, 72, t_amplitude=0.6, seed=99)
+    result = mm.verify(query, fs=fs, claimed_id="Person_Low_T", enrollments=enrollments, threshold=0.95)
+    assert not result.accepted
+    assert result.score < result.threshold
+
+
+def test_verify_unknown_claimed_id_raises(enrolled_synthetic_subjects):
+    enrollments, fs = enrolled_synthetic_subjects
+    query = _synthetic_multi_beat_signal(fs, 20, 72, seed=99)
+    with pytest.raises(ValueError, match="no enrollment found"):
+        mm.verify(query, fs=fs, claimed_id="Person_Nobody", enrollments=enrollments, threshold=0.5)
+
+
+def test_verify_unknown_method_raises(enrolled_synthetic_subjects):
+    enrollments, fs = enrolled_synthetic_subjects
+    query = _synthetic_multi_beat_signal(fs, 20, 72, seed=99)
+    with pytest.raises(ValueError, match="unknown matching method"):
+        mm.verify(
+            query, fs=fs, claimed_id="Person_High_T", enrollments=enrollments, threshold=0.5, method="bogus"
+        )

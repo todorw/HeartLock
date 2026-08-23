@@ -37,6 +37,14 @@ class IdentificationResult:
     scores: dict[str, float]
 
 
+@dataclass
+class VerificationResult:
+    claimed_id: str
+    accepted: bool
+    score: float
+    threshold: float
+
+
 def enroll_subject(signal: np.ndarray, fs: float, subject_id: str) -> Enrollment:
     """Extract both feature representations for one subject's recording."""
     fiducial_vector = extract_fiducial_features(signal, fs)
@@ -170,4 +178,52 @@ def identify(
     best_subject = max(scores, key=scores.get)
     return IdentificationResult(
         subject_id=best_subject, confidence=scores[best_subject], scores=scores
+    )
+
+
+def verify(
+    query_signal: np.ndarray,
+    fs: float,
+    claimed_id: str,
+    enrollments: list[Enrollment],
+    threshold: float,
+    method: str = "template_corr",
+) -> VerificationResult:
+    """1:1 verification: score the query only against the claimed subject's
+    own enrollment, and accept iff that score clears `threshold`.
+
+    This is a different operation from `identify()`. Identification asks
+    "who is this, out of everyone enrolled" (1:N, best match wins).
+    Verification asks "is this really who they claim to be" (1:1, a
+    threshold decision) - the operation an access-control-style system
+    would actually use, and the one `evaluate()`'s EER/threshold numbers
+    describe.
+    """
+    claimed = next((e for e in enrollments if e.subject_id == claimed_id), None)
+    if claimed is None:
+        raise ValueError(f"no enrollment found for claimed subject {claimed_id!r}")
+
+    query_template = build_average_template(query_signal, fs)
+
+    if method == "template_corr":
+        score = (
+            template_correlation_score(query_template, claimed.template)
+            if query_template is not None
+            else -1.0
+        )
+    elif method == "template_dtw":
+        score = (
+            template_dtw_score(query_template, claimed.template)
+            if query_template is not None
+            else 0.0
+        )
+    elif method == "fiducial":
+        query_vector = extract_fiducial_features(query_signal, fs)
+        _, feature_std = fiducial_feature_stats(enrollments)
+        score = fiducial_score(query_vector, claimed.fiducial_vector, feature_std)
+    else:
+        raise ValueError(f"unknown matching method {method!r}")
+
+    return VerificationResult(
+        claimed_id=claimed_id, accepted=score >= threshold, score=score, threshold=threshold
     )
