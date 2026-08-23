@@ -46,7 +46,7 @@ def _load_signal(args: argparse.Namespace) -> tuple[np.ndarray, float, str]:
         return signal.astype(np.float64), float(args.fs), label
 
     data_dir = _resolve_path(args.data_dir) if args.data_dir else None
-    rec = dl.load_record(args.subject, args.session, data_dir=data_dir)
+    rec = dl.load_record(args.subject, args.session, data_dir=data_dir, source=args.source)
     return rec.signal, float(rec.fs), rec.subject_id
 
 
@@ -175,10 +175,23 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     def add_common_signal_args(sub: argparse.ArgumentParser, include_store: bool = True) -> None:
-        sub.add_argument("subject", nargs="?", help="ECG-ID subject id, e.g. Person_01")
+        sub.add_argument(
+            "subject",
+            nargs="?",
+            help="subject/record id: ECG-ID 'Person_01' style, or a MIT-BIH record "
+            "number with --source mitbih",
+        )
         sub.add_argument("--session", type=int, default=1, help="recording session number (default: 1)")
         sub.add_argument("--file", help="load a raw signal from a local .npy file instead")
         sub.add_argument("--fs", type=float, help="sample rate in Hz, required with --file")
+        sub.add_argument(
+            "--source",
+            choices=["ecgid", "mitbih"],
+            default="ecgid",
+            help="dataset to load subject/record from (default: ecgid). mitbih is the "
+            "documented fallback when ECG-ID is unreachable - it has no repeat "
+            "sessions per subject, so --session must be 1",
+        )
         sub.add_argument("--data-dir", help="local ECG-ID cache directory (default: ./data)")
         sub.add_argument(
             "--powerline-freq", type=float, default=50.0, help="powerline notch frequency (default: 50)"

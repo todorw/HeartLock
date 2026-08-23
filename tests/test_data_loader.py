@@ -27,6 +27,46 @@ def test_validate_session_accepts_in_range():
     assert dl._validate_session("5") == 5
 
 
+def test_validate_mitbih_record_accepts_known_id():
+    assert dl._validate_mitbih_record("100") == "100"
+
+
+@pytest.mark.parametrize("bad_id", ["../../etc", "999", "100/../200", "", "MLII"])
+def test_validate_mitbih_record_rejects_unknown_or_traversal(bad_id):
+    with pytest.raises(ValueError):
+        dl._validate_mitbih_record(bad_id)
+
+
+def test_list_subjects_mitbih_needs_no_network(tmp_path):
+    subjects = dl.list_subjects(tmp_path, source="mitbih")
+    assert subjects == dl.MITBIH_RECORDS
+    assert "100" in subjects
+
+
+def test_list_sessions_mitbih_is_always_session_one():
+    assert dl.list_sessions("100", source="mitbih") == [1]
+
+
+def test_list_subjects_rejects_unknown_source(tmp_path):
+    with pytest.raises(ValueError, match="unknown data source"):
+        dl.list_subjects(tmp_path, source="bogus")
+
+
+def test_load_record_mitbih_rejects_non_one_session(tmp_path):
+    with pytest.raises(ValueError, match="no repeat sessions"):
+        dl.load_record("100", 2, data_dir=tmp_path, source="mitbih", download=False)
+
+
+@pytest.mark.network
+def test_load_record_mitbih_returns_expected_shape(tmp_path):
+    rec = dl.load_record("100", 1, data_dir=tmp_path, source="mitbih")
+    assert rec.subject_id == "100"
+    assert rec.session == 1
+    assert rec.fs == 360
+    assert rec.signal.ndim == 1
+    assert rec.signal.shape[0] > 0
+
+
 @pytest.mark.network
 def test_load_record_returns_expected_shape(tmp_path):
     rec = dl.load_record("Person_01", 1, data_dir=tmp_path)
